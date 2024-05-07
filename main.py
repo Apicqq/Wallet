@@ -1,10 +1,10 @@
 import json
+import uuid
 from datetime import datetime
 from getpass import getpass
 from hashlib import sha256
 from pathlib import Path
 from typing import Union
-import uuid
 
 from constants import UtilityConstants as Uc
 from decorators import restricted
@@ -18,9 +18,9 @@ class Wallet:
 
     @restricted
     def run_transaction(
-            self,
-            _type: str = "deposit",
-            path: Union[str, Path] = Uc.WALLETS_LOCATION
+        self,
+        _type: str = "deposit",
+        path: Union[str, Path] = Uc.WALLETS_LOCATION,
     ) -> bool:
         """
         Провести транзакцию. Возвращает True, если транзакция была
@@ -48,7 +48,7 @@ class Wallet:
                 amount,
                 category="deposit",
                 description=description,
-                path=path
+                path=path,
             )
         elif _type == "withdraw":
             self._write_to_file(
@@ -56,17 +56,16 @@ class Wallet:
                 amount,
                 category="withdraw",
                 description=description,
-                path=path
+                path=path,
             )
-        print(f"Сумма внесена на счёт. "
-              f"{self.get_balance(self._get_history(self.user))}")
+        print(
+            f"Сумма внесена на счёт. "
+            f"{self.get_balance(self._get_history(self.user))}"
+        )
         return True
 
     @staticmethod
-    def _get_history(
-            user: str,
-            path: str = Uc.WALLETS_LOCATION
-    ) -> list[dict]:
+    def _get_history(user: str, path: str = Uc.WALLETS_LOCATION) -> list[dict]:
         """
         Получить историю транзакций пользователя. Метод не должен
         использоваться внешними модулями, вместо этого используйте
@@ -83,10 +82,10 @@ class Wallet:
 
     @restricted
     def print_history(
-            self,
-            history: list,
-            message: str = "\nИстория ваших транзакций:\n\n",
-            mode: str = "all",
+        self,
+        history: list,
+        message: str = "\nИстория ваших транзакций:\n\n",
+        mode: str = "all",
     ) -> str:
         """
         Вывести историю транзакций пользователя в терминал.
@@ -139,10 +138,9 @@ class Wallet:
         return output_string
 
     @restricted
-    def get_balance(
-            self,
-            history: list[dict]
-    ) -> str:
+    def get_balance(self, history: list[dict]) -> str:
+        # TODO добавить возможность отобразить баланс отдельно доходов,
+        # отдельно расходов.
         """
         Вывести в терминал текущий баланс пользователя.
 
@@ -162,12 +160,12 @@ class Wallet:
 
     @staticmethod
     def _write_to_file(
-            user: str,
-            amount: float,
-            category: str,
-            description: str,
-            encoding: str = "utf-8",
-            path: Union[str, Path] = Uc.WALLETS_LOCATION,
+        user: str,
+        amount: float,
+        category: str,
+        description: str,
+        encoding: str = "utf-8",
+        path: Union[str, Path] = Uc.WALLETS_LOCATION,
     ) -> bool:
         """
         Записать совершенную транзакцию в файл.
@@ -203,12 +201,7 @@ class Wallet:
         return True
 
     @restricted
-    def search(
-            self,
-            mode: str,
-            user_input: str,
-            history: list[dict]
-    ) -> str:
+    def search(self, mode: str, user_input: str, history: list[dict]) -> str:
         """
         Поиск по истории транзакций пользователя.
 
@@ -259,9 +252,9 @@ class Wallet:
           сообщение об ошибке.
         """
         user_already_exists = (
-                            "Такой пользователь уже существует,"
-                            "пожалуйста, попробуйте ещё раз."
-                        )
+            "Такой пользователь уже существует,"
+            "пожалуйста, попробуйте ещё раз."
+        )
         user = input("Введите логин для регистрации: ")
         try:
             with open(path, "r") as file:
@@ -305,9 +298,9 @@ class Wallet:
             while not user_found:
                 for user_data in data:
                     if (
-                            user_data["user"] == user
-                            and user_data["password"]
-                            == sha256(password.encode()).hexdigest()
+                        user_data["user"] == user
+                        and user_data["password"]
+                        == sha256(password.encode()).hexdigest()
                     ):
                         self.user = user
                         self.authenticated = True
@@ -350,7 +343,7 @@ class Wallet:
             return self._handle_unauthenticated_commands(command)
 
     def _handle_authenticated_commands(
-            self, command: str
+        self, command: str
     ) -> Union[bool, None]:
         """
         Маршрутизатор команд для авторизованного пользователя.
@@ -371,9 +364,10 @@ class Wallet:
                     "2. deposit - только пополнения\n"
                     "3. withdraw - только снятия\n"
                 )
-                print(self.print_history(
-                    history=self._get_history(self.user),
-                    mode=mode)
+                print(
+                    self.print_history(
+                        history=self._get_history(self.user), mode=mode
+                    )
                 )
             case "search":
                 mode = input(
@@ -381,11 +375,9 @@ class Wallet:
                     "3. Сумма\n4. Описание\n"
                 )
                 value = input("Введите значение: ")
-                return print(self.search(
-                    mode,
-                    value,
-                    self._get_history(self.user)
-                ))
+                return print(
+                    self.search(mode, value, self._get_history(self.user))
+                )
             case "edit":
                 return self.edit_transaction()
             case "help":
@@ -396,8 +388,7 @@ class Wallet:
                 print("Неверная либо несуществующая команда")
 
     def _handle_unauthenticated_commands(
-            self,
-            command: str
+        self, command: str
     ) -> Union[bool, None, str]:
         """
         Маршрутизатор команд для неавторизованного пользователя.
@@ -422,7 +413,7 @@ class Wallet:
             if not self.authenticated:
                 print(
                     "Здравствуйте! Для того, чтобы воспользоваться кошельком,"
-                    "нужно войти в систему, либо,"
+                    " нужно войти в систему, либо,"
                     " если вы ещё не зарегистрированы, — зарегистрироваться."
                     " Введите команду register для регистрации, либо auth,"
                     " чтобы войти в свой аккаунт. \n\n"
