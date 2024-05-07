@@ -2,7 +2,8 @@ import json
 from datetime import datetime
 from getpass import getpass
 from hashlib import sha256
-from typing import Union, Generator
+from pathlib import Path
+from typing import Union
 
 from constants import UtilityConstants as Uc
 from decorators import restricted
@@ -15,7 +16,6 @@ class Wallet:
         self.first_time_logged = True
 
     @restricted
-    # TODO write tests
     def run_transaction(
             self,
             _type: str = "deposit",
@@ -39,21 +39,27 @@ class Wallet:
             self._write_to_file(
                 self.user, amount, category="withdraw", description=description
             )
-        print(f"Сумма внесена на счёт. {self.get_balance(self.user)}")
+        print(f"Сумма внесена на счёт. "
+              f"{self.get_balance(self._get_history(self.user))}")
+        return True
 
     @staticmethod
-    def _get_history(user: str) -> Generator[dict, None, None]:
-        with open(Uc.WALLETS_LOCATION, "r") as file:
+    def _get_history(
+            user: str,
+            path: str = Uc.WALLETS_LOCATION
+    ) -> list[dict]:
+        with open(path, "r") as file:
             data = json.loads(file.read())
-            return (item for item in data if item["user"] == user)
+            return [item for item in data if item["user"] == user]
 
     @restricted
     def print_history(
             self,
+            history: list,
             message: str = "\nИстория ваших транзакций:\n\n",
             mode: str = "all",
     ) -> Union[str, None]:
-        history = self._get_history(self.user)
+        # history = self._get_history(self.user)
         KEYS = {
             "date": "Дата",
             "category": "Категория",
@@ -93,10 +99,13 @@ class Wallet:
         return output_string
 
     @restricted
-    def get_balance(self, user: str) -> str:
+    def get_balance(
+            self,
+            history: list[dict]
+    ) -> str:
         curr_balance = 0
         try:
-            for item in self._get_history(user):
+            for item in history:
                 if item["category"] == "deposit":
                     curr_balance += item["amount"]
                 elif item["category"] == "withdraw":
@@ -112,7 +121,8 @@ class Wallet:
             category: str,
             description: str,
             encoding: str = "utf-8",
-    ) -> None:
+            path: Union[str, Path] = Uc.WALLETS_LOCATION,
+    ) -> bool:
         data = []
         json_data = (
             dict(
@@ -124,21 +134,22 @@ class Wallet:
             ),
         )
         try:
-            with open(Uc.WALLETS_LOCATION, "r", encoding=encoding) as file:
+            with open(path, "r", encoding=encoding) as file:
                 data = json.load(file)
         except FileNotFoundError:
             pass
         data.extend(json_data)
-        with open(Uc.WALLETS_LOCATION, "w", encoding=encoding) as file:
+        with open(path, "w", encoding=encoding) as file:
             json.dump(data, file, indent=4)
+        return True
 
     @restricted
     def search(
             self,
             mode: str,
             user_input: str,
+            history: list[dict]
     ) -> str:
-        history = self._get_history(self.user)
         key_map = {
             "Дата": "date",
             "Категория": "category",
@@ -148,9 +159,9 @@ class Wallet:
         key = key_map.get(mode)
         if user_input.isdigit():
             user_input = float(user_input)  # to match values from the history
-        results = (res for res in history if res.get(key) == user_input)
+        results = [res for res in history if res.get(key) == user_input]
         if results:
-            return self.print_history()
+            return self.print_history(history=results)
         else:
             return "Ничего не найдено"
 
@@ -159,10 +170,11 @@ class Wallet:
         with open(f"{Uc.WALLETS_DIR}/{self.user}_wallet.json", "r") as file:
             pass
 
-    def register(self, encoding: str = "utf-8") -> str:
+    @staticmethod
+    def register(path: Union[str, Path], encoding: str = "utf-8") -> str:
         user = input("Введите логин для регистрации: ")
         try:
-            with open(Uc.USERS_LOCATION, "r") as file:
+            with open(path, "r") as file:
                 users = json.load(file)
                 for user_data in users:
                     if user_data["user"] == user:
@@ -170,7 +182,8 @@ class Wallet:
                             "Такой пользователь уже существует,"
                             "пожалуйста, попробуйте ещё раз."
                         )
-                        return self.register(encoding=encoding)
+                        return ("Такой пользователь уже существует. "
+                                "Пожалуйста, попробуйте ещё раз.")
         except FileNotFoundError:
             pass
         password = getpass(prompt="Введите пароль: ")
@@ -180,14 +193,14 @@ class Wallet:
             password=sha256(password.encode()).hexdigest(),
         )
         try:
-            with open(Uc.USERS_LOCATION, "r", encoding=encoding) as file:
+            with open(path, "r", encoding=encoding) as file:
                 data = json.load(file)
         except FileNotFoundError:
             pass
         except json.decoder.JSONDecodeError:
             pass
         data.append(user_data)
-        with open(Uc.USERS_LOCATION, "w") as file:
+        with open(path, "w") as file:
             json.dump(data, file, indent=4)
             print(f"Вы успешно зарегистрировались, {user}!\n")
         return user
@@ -237,7 +250,7 @@ class Wallet:
     ) -> Union[bool, None]:
         match command:
             case "balance":
-                return print(self.get_balance(self.user))
+                return print(self.get_balance(self._get_history(self.user)))
             case "deposit":
                 return self.run_transaction(_type="deposit")
             case "withdraw":
@@ -249,14 +262,23 @@ class Wallet:
                     "2. deposit - только пополнения\n"
                     "3. withdraw - только снятия\n"
                 )
-                print(self.print_history(mode=mode))
+                print(self.print_history(
+                    history=self._get_history(self.user),
+                    mode=mode)
+                )
             case "search":
                 mode = input(
                     "Выберите критерий поиска: \n1. Дата\n2. Категория\n"
                     "3. Сумма\n4. Описание\n"
                 )
                 value = input("Введите значение: ")
-                return print(self.search(mode, value))
+                return print(self.search(
+                    mode,
+                    value,
+                    self._get_history(self.user)
+                ))
+            case "edit":
+                return self.edit_transaction()
             case "help":
                 return print(self.get_commands())
             case "exit":
@@ -269,7 +291,7 @@ class Wallet:
     ]:
         match command:
             case "register":
-                return self.register()
+                return self.register(path=Uc.USERS_LOCATION)
             case "auth":
                 return self.auth()
             case "exit":
@@ -282,7 +304,7 @@ class Wallet:
             if not self.authenticated:
                 print(
                     "Здравствуйте! Для того, чтобы воспользоваться кошельком,"
-                    "нужно войти в систему, либо,"
+                    "нужно войти в систему, либо,"
                     " если вы ещё не зарегистрированы, — зарегистрироваться."
                     " Введите команду register для регистрации, либо auth,"
                     " чтобы войти в свой аккаунт. \n\n"
