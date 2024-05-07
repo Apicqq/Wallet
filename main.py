@@ -4,6 +4,7 @@ from getpass import getpass
 from hashlib import sha256
 from pathlib import Path
 from typing import Union
+import uuid
 
 from constants import UtilityConstants as Uc
 from decorators import restricted
@@ -19,6 +20,7 @@ class Wallet:
     def run_transaction(
             self,
             _type: str = "deposit",
+            path: Union[str, Path] = Uc.WALLETS_LOCATION
     ) -> bool:
         KEYS = {
             "deposit": "внесения",
@@ -33,11 +35,19 @@ class Wallet:
         description = input(f"Введите описание для транзакции: ")
         if _type == "deposit":
             self._write_to_file(
-                self.user, amount, category="deposit", description=description
+                self.user,
+                amount,
+                category="deposit",
+                description=description,
+                path=path
             )
         elif _type == "withdraw":
             self._write_to_file(
-                self.user, amount, category="withdraw", description=description
+                self.user,
+                amount,
+                category="withdraw",
+                description=description,
+                path=path
             )
         print(f"Сумма внесена на счёт. "
               f"{self.get_balance(self._get_history(self.user))}")
@@ -126,6 +136,7 @@ class Wallet:
         data = []
         json_data = (
             dict(
+                id=str(uuid.uuid4()),
                 user=user,
                 date=datetime.now().date().isoformat(),
                 category=category,
