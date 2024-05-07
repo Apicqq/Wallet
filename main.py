@@ -22,6 +22,15 @@ class Wallet:
             _type: str = "deposit",
             path: Union[str, Path] = Uc.WALLETS_LOCATION
     ) -> bool:
+        """
+        Провести транзакцию. Возвращает True, если транзакция была
+        выполнена, False в противном случае.
+
+        :param _type: Тип транзакции, по умолчанию deposit.
+        :param path: Путь к файлу с историей транзакций, по умолчанию
+         указывает на файл wallets.json в корневой папке.
+        :returns: True если транзакция была выполнена, False в ином случае.
+        """
         KEYS = {
             "deposit": "внесения",
             "withdraw": "снятия",
@@ -58,6 +67,16 @@ class Wallet:
             user: str,
             path: str = Uc.WALLETS_LOCATION
     ) -> list[dict]:
+        """
+        Получить историю транзакций пользователя. Метод не должен
+        использоваться внешними модулями, вместо этого используйте
+        print_history().
+
+        :param user: Пользователь, для которого нужно получить историю.
+        :param path: Путь к файлу с историей транзакций, по умолчанию
+         указывает на файл wallets.json в корневой папке.
+        :returns: List[dict] - история транзакций.
+        """
         with open(path, "r") as file:
             data = json.loads(file.read())
             return [item for item in data if item["user"] == user]
@@ -68,8 +87,19 @@ class Wallet:
             history: list,
             message: str = "\nИстория ваших транзакций:\n\n",
             mode: str = "all",
-    ) -> Union[str, None]:
-        # history = self._get_history(self.user)
+    ) -> str:
+        """
+        Вывести историю транзакций пользователя в терминал.
+
+        :param history: История транзакций пользователя.
+        :param message: Сообщение, которое будет выведено перед историей,
+         по умолчанию равно "История ваших транзакций".
+        :param mode: Режим вывода истории, по умолчанию равен "all".
+         Всего доступно 3 режима: все транзакции (режим `all`), только
+         пополнения (режим `deposit`), и только снятия (режим `withdraw`).
+        :returns: Str — сообщение с историей транзакций, либо фраза
+         "Ничего не найдено", если подходящие транзакции не были найдены.
+        """
         KEYS = {
             "date": "Дата",
             "category": "Категория",
@@ -113,6 +143,12 @@ class Wallet:
             self,
             history: list[dict]
     ) -> str:
+        """
+        Вывести в терминал текущий баланс пользователя.
+
+        :param history: История транзакций пользователя.
+        :returns: Str — текущий баланс пользователя.
+        """
         curr_balance = 0
         try:
             for item in history:
@@ -121,7 +157,7 @@ class Wallet:
                 elif item["category"] == "withdraw":
                     curr_balance -= item["amount"]
             return f"Ваш текущий баланс: {float(curr_balance)}"
-        except FileNotFoundError:
+        except FileNotFoundError:  # для подстраховки на случай первого запуска
             return "Ваш текущий баланс: 0.0"
 
     @staticmethod
@@ -133,6 +169,18 @@ class Wallet:
             encoding: str = "utf-8",
             path: Union[str, Path] = Uc.WALLETS_LOCATION,
     ) -> bool:
+        """
+        Записать совершенную транзакцию в файл.
+
+        :param user: Пользователь, совершивший транзакцию.
+        :param amount: Сумма транзакции.
+        :param category: Категория транзакции (доход либо расход).
+        :param description: Описание транзакции, указанное пользователем.
+        :param encoding: Кодировка файла, по умолчанию равна `utf-8`.
+        :param path: Путь к файлу с историей транзакций, по умолчанию
+         указывает на файл wallets.json в корневой папке.
+        :returns: Bool — True, в случае, если запись в файл прошла успешно.
+        """
         data = []
         json_data = (
             dict(
@@ -148,7 +196,7 @@ class Wallet:
             with open(path, "r", encoding=encoding) as file:
                 data = json.load(file)
         except FileNotFoundError:
-            pass
+            pass  # для подстраховки на случай первого запуска
         data.extend(json_data)
         with open(path, "w", encoding=encoding) as file:
             json.dump(data, file, indent=4)
@@ -161,6 +209,16 @@ class Wallet:
             user_input: str,
             history: list[dict]
     ) -> str:
+        """
+        Поиск по истории транзакций пользователя.
+
+        :param mode: Режим поиска. Доступны следующие варианты:
+         `Дата`, `Категория`, `Сумма`, `Описание`.
+        :param user_input: Значение для поиска, введённое пользователем.
+        :param history: История, в которой следует производить поиск.
+        :returns: Str — результат поиска. При отсутствии результатов
+         возвращается строка "Ничего не найдено".
+        """
         key_map = {
             "Дата": "date",
             "Категория": "category",
@@ -169,7 +227,9 @@ class Wallet:
         }
         key = key_map.get(mode)
         if user_input.isdigit():
-            user_input = float(user_input)  # to match values from the history
+            user_input = float(user_input)  # для того чтобы преобразовать
+            # значение пользователя в число, подобно тому, как оно хранится
+            # в истории.
         results = [res for res in history if res.get(key) == user_input]
         if results:
             return self.print_history(history=results)
@@ -178,25 +238,40 @@ class Wallet:
 
     @restricted
     def edit_transaction(self):
+        """
+        Редактирование существующей транзакции.
+        #TODO написать этот метод.
+        :return:
+        """
         with open(f"{Uc.WALLETS_DIR}/{self.user}_wallet.json", "r") as file:
             pass
 
     @staticmethod
     def register(path: Union[str, Path], encoding: str = "utf-8") -> str:
+        """
+        Регистрация нового пользователя.
+
+        :param path: Путь к файлу с данными о пользователях, по умолчанию
+          указывает на файл users.json в корневой папке.
+        :param encoding: Кодировка файла, по умолчанию равна `utf-8`.
+        :returns: Str — никнейм зарегистрированного пользователя. В случае,
+         если пользователь с таким логином уже существует, то возвращается
+          сообщение об ошибке.
+        """
+        user_already_exists = (
+                            "Такой пользователь уже существует,"
+                            "пожалуйста, попробуйте ещё раз."
+                        )
         user = input("Введите логин для регистрации: ")
         try:
             with open(path, "r") as file:
                 users = json.load(file)
                 for user_data in users:
                     if user_data["user"] == user:
-                        print(
-                            "Такой пользователь уже существует,"
-                            "пожалуйста, попробуйте ещё раз."
-                        )
-                        return ("Такой пользователь уже существует. "
-                                "Пожалуйста, попробуйте ещё раз.")
+                        print(user_already_exists)
+                        return user_already_exists
         except FileNotFoundError:
-            pass
+            pass  # подстраховка для первого запуска.
         password = getpass(prompt="Введите пароль: ")
         data = []
         user_data = dict(
@@ -207,9 +282,9 @@ class Wallet:
             with open(path, "r", encoding=encoding) as file:
                 data = json.load(file)
         except FileNotFoundError:
-            pass
+            pass  # подстраховка для первого запуска.
         except json.decoder.JSONDecodeError:
-            pass
+            pass  # аналогично
         data.append(user_data)
         with open(path, "w") as file:
             json.dump(data, file, indent=4)
@@ -217,6 +292,11 @@ class Wallet:
         return user
 
     def auth(self) -> Union[str, None]:
+        """
+        Авторизация пользователя по паре логин-пароль.
+
+        :returns: Str — никнейм пользователя, если авторизация прошла успешно.
+        """
         user = input("Введите логин для входа: ")
         password = getpass("Введите пароль: ")
         user_found = False
@@ -239,6 +319,11 @@ class Wallet:
 
     @staticmethod
     def get_commands() -> str:
+        """
+        Вывод списка доступных команд.
+
+        :returns: Str — список команд.
+        """
         return (
             "Список команд: "
             "\n1. balance — проверить баланс"
@@ -251,6 +336,14 @@ class Wallet:
         )
 
     def command_resolver(self, command: str) -> Union[bool, None]:
+        """
+        Маршрутизатор команд. Позволяет либо запрещает пользователю
+        использовать те или иные команды, в зависимости от того,
+        авторизован пользователь или нет.
+
+        :param command: Str — команда, введённая пользователем.
+        :returns: Union[bool, None] — результат выполнения команды.
+        """
         if self.authenticated:
             return self._handle_authenticated_commands(command)
         else:
@@ -259,6 +352,11 @@ class Wallet:
     def _handle_authenticated_commands(
             self, command: str
     ) -> Union[bool, None]:
+        """
+        Маршрутизатор команд для авторизованного пользователя.
+        :param command: Str — команда, введённая пользователем.
+        :returns: Union[bool, None] — результат выполнения команды.
+        """
         match command:
             case "balance":
                 return print(self.get_balance(self._get_history(self.user)))
@@ -297,9 +395,15 @@ class Wallet:
             case _:
                 print("Неверная либо несуществующая команда")
 
-    def _handle_unauthenticated_commands(self, command: str) -> Union[
-        bool, None, str
-    ]:
+    def _handle_unauthenticated_commands(
+            self,
+            command: str
+    ) -> Union[bool, None, str]:
+        """
+        Маршрутизатор команд для неавторизованного пользователя.
+        :param command: Str — команда, введённая пользователем.
+        :returns: Union[bool, None] — результат выполнения команды.
+        """
         match command:
             case "register":
                 return self.register(path=Uc.USERS_LOCATION)
@@ -311,6 +415,9 @@ class Wallet:
                 print("Неверная либо несуществующая команда")
 
     def run(self) -> None:
+        """
+        Точка входа в приложение.
+        """
         while True:
             if not self.authenticated:
                 print(
