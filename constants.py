@@ -101,3 +101,4 @@ class ErrorLiterals:
     NOTHING_FOUND = "Ничего не найдено"
     ID_CANNOT_BE_CHANGED = "Ошибка: id транзакции не может быть изменён"
     TRANSACTION_NOT_FOUND = "Транзакция с указанным id не найдена"
+    NOT_LOGGED_IN = "Вы не вошли в систему"
