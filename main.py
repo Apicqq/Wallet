@@ -1,10 +1,10 @@
 import json
-from uuid import uuid4
+import re
 from datetime import datetime
-from getpass import getpass
 from hashlib import sha256
 from pathlib import Path
 from typing import Union
+from uuid import uuid4
 
 from constants import (
     UtilityConstants as Uc,
@@ -12,10 +12,9 @@ from constants import (
     ErrorLiterals as Err,
     TRANSACTION_FIELDS_MAPPING,
     DEPOSIT_TYPE_MAPPING,
-    EDIT_CATEGORY_MAPPING,
-    SEARCH_FIELDS_MAPPING
 )
 from decorators import restricted
+from mask_input import mask_input
 
 
 class Wallet:
@@ -23,10 +22,13 @@ class Wallet:
         self.user = None
         self.authenticated = False
         self.first_time_logged = True
+        self.required_to_show_commands = True
 
     @restricted
     def run_transaction(
             self,
+            amount: str,
+            description: str = None,
             _type: str = "deposit",
             path: Union[str, Path] = Uc.WALLETS_LOCATION,
     ) -> bool:
@@ -34,22 +36,18 @@ class Wallet:
         Провести транзакцию. Возвращает True, если транзакция была
         выполнена, False в противном случае.
 
+        :param description: Описание транзакции.
         :param _type: Тип транзакции, по умолчанию deposit.
         :param path: Путь к файлу с историей транзакций, по умолчанию
          указывает на файл wallets.json в корневой папке.
+        :param amount: Сумма транзакции в виде строки.
         :returns: True если транзакция была выполнена, False в ином случае.
         """
-        amount = input(
-            Lit.RUN_TRANSACTION_ENTER_AMOUNT.format(
-                DEPOSIT_TYPE_MAPPING[_type]
-            )
-        )
         try:
             amount = float(amount)
         except ValueError:
             print(Err.INVALID_NUMBER)
             return False
-        description = input(Lit.TRANSACTION_DESCRIPTION)
         if _type == "deposit":
             self._write_to_file(
                 self.user,
@@ -73,7 +71,10 @@ class Wallet:
         return True
 
     @staticmethod
-    def _get_history(user: str, path: str = Uc.WALLETS_LOCATION) -> list[dict]:
+    def _get_history(
+            user: str,
+            path: Union[str, Path] = Uc.WALLETS_LOCATION
+    ) -> list[dict]:
         """
         Получить историю транзакций пользователя. Метод не должен
         использоваться внешними модулями, вместо этого используйте
@@ -90,8 +91,19 @@ class Wallet:
 
     @staticmethod
     def _get_transaction_by_id(
-            user: str, transaction_id: str, path: str = Uc.WALLETS_LOCATION
-    ) -> dict:
+            user: str,
+            transaction_id: str,
+            path: Union[str, Path] = Uc.WALLETS_LOCATION,
+    ) -> Union[dict, bool]:
+        """
+        Возвращает транзакцию по id, если она существует. В ином случае
+         возвращает False.
+        :param user: Пользователь, для которого нужно получить транзакцию.
+        :param transaction_id: ID транзакции.
+        :param path: Путь к файлу с историей транзакций, по умолчанию
+         указывает на файл wallets.json в корневой папке.
+        :returns: Dict - транзакция или False, если она не существует.
+        """
         with open(path, "r") as file:
             data = json.loads(file.read())
             try:
@@ -101,7 +113,7 @@ class Wallet:
                     if item["id"] == transaction_id and item["user"] == user
                 )
             except StopIteration:
-                return Err.TRANSACTION_NOT_FOUND
+                return False
 
     @restricted
     def print_history(
@@ -156,22 +168,23 @@ class Wallet:
 
     @restricted
     def get_balance(self, history: list[dict]) -> str:
-        # TODO добавить возможность отобразить баланс отдельно доходов,
-        # отдельно расходов.
         """
         Вывести в терминал текущий баланс пользователя.
 
         :param history: История транзакций пользователя.
         :returns: Str — текущий баланс пользователя.
         """
-        curr_balance = 0
+        deposits = 0
+        withdraws = 0
         try:
             for item in history:
                 if item["category"] == "deposit":
-                    curr_balance += item["amount"]
+                    deposits += item["amount"]
                 elif item["category"] == "withdraw":
-                    curr_balance -= item["amount"]
-            return Lit.CURRENT_BALANCE.format(float(curr_balance))
+                    withdraws += item["amount"]
+            return Lit.CURRENT_BALANCE.format(
+                float(deposits - withdraws), float(deposits), float(withdraws)
+            )
         except FileNotFoundError:  # для подстраховки на случай первого запуска
             return Lit.CURRENT_BALANCE.format(0.0)
 
@@ -183,7 +196,7 @@ class Wallet:
             description: str,
             encoding: str = "utf-8",
             path: Union[str, Path] = Uc.WALLETS_LOCATION,
-    ) -> bool:
+    ) -> tuple[dict[str, str | float]]:
         """
         Записать совершенную транзакцию в файл.
 
@@ -194,7 +207,7 @@ class Wallet:
         :param encoding: Кодировка файла, по умолчанию равна `utf-8`.
         :param path: Путь к файлу с историей транзакций, по умолчанию
          указывает на файл wallets.json в корневой папке.
-        :returns: Bool — True, в случае, если запись в файл прошла успешно.
+        :returns: Словарь с информацией о совершенной транзакции.
         """
         data = []
         json_data = (
@@ -217,7 +230,7 @@ class Wallet:
         data.extend(json_data)
         with open(path, "w", encoding=encoding) as file:
             json.dump(data, file, indent=4)
-        return True
+        return json_data
 
     @restricted
     def search(self, mode: str, user_input: str, history: list[dict]) -> str:
@@ -231,44 +244,34 @@ class Wallet:
         :returns: Str — результат поиска. При отсутствии результатов
          возвращается строка "Ничего не найдено".
         """
-        key = SEARCH_FIELDS_MAPPING.get(mode)
         if user_input.isdigit():
             user_input = float(user_input)  # для того чтобы преобразовать
             # значение пользователя в число, подобно тому, как оно хранится
             # в истории.
-        results = [res for res in history if res.get(key) == user_input]
+        results = [res for res in history if res.get(mode) == user_input]
         if results:
             return self.print_history(history=results)
         else:
             return Err.NOTHING_FOUND
 
     @staticmethod
-    def _run_edit_checkups(transaction_to_edit: dict) -> Union[dict, bool]:
+    def _match_search_mode(mode: str) -> str:
         """
-        Проверка корректности данных перед редактированием транзакции.
+        Вывести подсказку по вариантам поиска в терминале.
 
-        :param transaction_to_edit: Данные транзакции для редактирования.
-        :returns: Транзакция, если данные корректны, иначе — False.
+        :param mode: Режим поиска.
+        :return: Режим поиска.
         """
-        if "id" in transaction_to_edit:
-            print(Err.ID_CANNOT_BE_CHANGED)
-            return False
-        if transaction_to_edit["amount"]:
-            try:
-                transaction_to_edit["amount"] = float(
-                    transaction_to_edit["amount"]
-                )
-            except ValueError:
-                print(Err.INVALID_NUMBER)
-                return False
-        if (
-                transaction_to_edit["category"] and
-                transaction_to_edit["category"]
-                not in EDIT_CATEGORY_MAPPING.keys()
-        ):
-            print(Err.INVALID_CATEGORY)
-            return False
-        return transaction_to_edit
+        match mode:
+            case "date":
+                print(Lit.DATE_EXAMPLE)
+            case "amount":
+                print(Lit.AMOUNT_EXAMPLE)
+            case "category":
+                print(Lit.CATEGORY_EXAMPLE)
+            case "description":
+                print(Lit.DESCRIPTION_EXAMPLE)
+        return mode
 
     @restricted
     def edit_transaction(
@@ -291,11 +294,11 @@ class Wallet:
         with open(path, "r") as file:
             data: list[dict] = json.load(file)
         transaction_to_edit = self._get_transaction_by_id(
-            user=user, transaction_id=transaction_id
+            user=user, transaction_id=transaction_id, path=path
         )
         if not transaction_to_edit:
             print(Err.TRANSACTION_NOT_FOUND)
-            return
+            return False
         newline = "\n"
         print(Lit.TRANSACTION_CURRENT_DATA)
         print(
@@ -309,23 +312,17 @@ class Wallet:
             .replace("deposit", "Доход")
             .replace("withdraw", "Расход")
         )
-        print(Lit.FIELDS_TO_CHANGE_PROMPT)
-        edited_transaction = dict(
-            date=input("Дата: "),
-            category=input("Категория. Доступные варианты: Доход, Расход: "),
-            amount=input("Сумма: "),
-            description=input("Описание: "),
+        values_to_edit = self._get_values_to_edit(
+            fields=list(TRANSACTION_FIELDS_MAPPING.keys()),
         )
-        if self._run_edit_checkups(edited_transaction):
+        if self._run_edit_checkups(values_to_edit):
             for entry in data:
-                for key, value in edited_transaction.items():
+                for key, value in values_to_edit.items():
                     if (
                             entry["id"] == transaction_id
                             and value
                             and key in transaction_to_edit.keys()
                     ):
-                        if key == "category":
-                            value = EDIT_CATEGORY_MAPPING[value]
                         entry[key] = value
                         print(
                             Lit.TRANSACTION_FIELD_CHANGED.format(
@@ -335,13 +332,95 @@ class Wallet:
             with open(path, "w") as file:
                 file.write(json.dumps(data, indent=4))
             print(Lit.TRANSACTION_SUCCESSFULLY_EDITED)
-            return edited_transaction
+            return True
+        else:
+            return False
 
     @staticmethod
-    def register(path: Union[str, Path], encoding: str = "utf-8") -> str:
+    def _run_edit_checkups(transaction_to_edit: dict) -> Union[dict, bool]:
+        """
+        Проверка корректности данных перед редактированием транзакции.
+
+        :param transaction_to_edit: Данные транзакции для редактирования.
+        :returns: Транзакция, если данные корректны, иначе — False.
+        """
+        if "id" in transaction_to_edit:
+            print(Err.ID_CANNOT_BE_CHANGED)
+            return False
+        if transaction_to_edit["amount"]:
+            try:
+                transaction_to_edit["amount"] = float(
+                    transaction_to_edit["amount"]
+                )
+            except ValueError:
+                print(Err.INVALID_NUMBER)
+                return False
+        if (
+                transaction_to_edit["category"]
+                and transaction_to_edit["category"]
+                not in DEPOSIT_TYPE_MAPPING.keys()
+        ):
+            print(Err.INVALID_CATEGORY)
+            return False
+        if transaction_to_edit["date"] and not re.match(
+                r"([12]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))",
+                transaction_to_edit["date"],
+        ):
+            print(Err.INVALID_DATE)
+            return False
+        if (
+                transaction_to_edit["description"]
+                and len(transaction_to_edit["description"])
+                > Uc.DESCRIPTION_MAX_LENGTH
+        ):
+            print(Err.DESCRIPTION_TOO_LONG)
+            return False
+        return transaction_to_edit
+
+    @staticmethod
+    def _get_values_to_edit(
+            fields: list[str],
+    ) -> dict[str, str | float | None]:
+        values_to_edit = {}
+        print(Lit.FIELDS_TO_CHANGE_PROMPT)
+        for field in fields:
+            if field == "date":
+                new_value = input(
+                    Lit.ENTER_FIELD_VALUE.format(
+                        field=TRANSACTION_FIELDS_MAPPING[field],
+                        description=Lit.DATE_EXAMPLE,
+                    )
+                )
+            elif field == "category":
+                new_value = input(
+                    Lit.ENTER_FIELD_VALUE.format(
+                        field=TRANSACTION_FIELDS_MAPPING[field],
+                        description=Lit.CATEGORY_EXAMPLE,
+                    )
+                )
+            else:
+                new_value = input(
+                    Lit.ENTER_FIELD_VALUE.format(
+                        field=TRANSACTION_FIELDS_MAPPING[field], description=""
+                    )
+                )
+            values_to_edit[field] = new_value
+            if field not in TRANSACTION_FIELDS_MAPPING.keys():
+                continue
+        return values_to_edit
+
+    @staticmethod
+    def register(
+            user: str,
+            password: str,
+            path: Union[str, Path] = Uc.USERS_LOCATION,
+            encoding: str = "utf-8",
+    ) -> str:
         """
         Регистрация нового пользователя.
 
+        :param user: Логин пользователя.
+        :param password: Пароль пользователя.
         :param path: Путь к файлу с данными о пользователях, по умолчанию
           указывает на файл users.json в корневой папке.
         :param encoding: Кодировка файла, по умолчанию равна `utf-8`.
@@ -349,7 +428,6 @@ class Wallet:
          если пользователь с таким логином уже существует, то возвращается
           сообщение об ошибке.
         """
-        user = input(Lit.ENTER_LOGIN_REGISTER)
         try:
             with open(path, "r") as file:
                 users = json.load(file)
@@ -359,7 +437,8 @@ class Wallet:
                         return Err.USER_ALREADY_EXISTS
         except FileNotFoundError:
             pass  # подстраховка для первого запуска.
-        password = getpass(prompt=Lit.ENTER_PASSWORD)
+        except json.decoder.JSONDecodeError:
+            pass  # аналогично
         data = []
         user_data = dict(
             user=user,
@@ -378,31 +457,39 @@ class Wallet:
             print(Lit.REGISTRATION_SUCCESSFUL.format(user))
         return user
 
-    def auth(self) -> Union[str, None]:
+    def auth(
+            self,
+            user: str,
+            password: str,
+            path: Union[str, Path] = Uc.USERS_LOCATION,
+    ) -> Union[str, None]:
         """
         Авторизация пользователя по паре логин-пароль.
 
+        :param user: Логин пользователя.
+        :param password: Пароль пользователя.
+        :param path: Путь к файлу с данными о пользователях, по умолчанию
+          указывает на файл users.json в корневой папке.
+
         :returns: Str — никнейм пользователя, если авторизация прошла успешно.
         """
-        user = input(Lit.ENTER_LOGIN_AUTH)
-        password = getpass(Lit.ENTER_PASSWORD)
         user_found = False
-        with open(Uc.USERS_LOCATION, "r") as file:
+        with open(path, "r") as file:
             data = json.loads(file.read())
-            while not user_found:
-                for user_data in data:
-                    if (
-                            user_data["user"] == user
-                            and user_data["password"]
-                            == sha256(password.encode()).hexdigest()
-                    ):
-                        self.user = user
-                        self.authenticated = True
-                        return user
+            for user_data in data:
+                if (
+                        user_data["user"] == user
+                        and user_data["password"]
+                        == sha256(password.encode()).hexdigest()
+                ):
+                    self.user = user
+                    self.authenticated = True
+                    return user
+                else:
+                    continue
+            if not user_found:
                 print(Err.INVALID_CREDENTIALS)
-                user = input(Lit.ENTER_LOGIN_AUTH)
-                password = getpass(Lit.ENTER_PASSWORD)
-        return
+                return Err.INVALID_CREDENTIALS
 
     @staticmethod
     def get_commands() -> str:
@@ -439,22 +526,37 @@ class Wallet:
             case "balance":
                 return print(self.get_balance(self._get_history(self.user)))
             case "deposit":
-                return self.run_transaction(_type="deposit")
+                return self.run_transaction(
+                    _type="deposit",
+                    amount=input(
+                        Lit.RUN_TRANSACTION_ENTER_AMOUNT.format(
+                            DEPOSIT_TYPE_MAPPING["deposit"]
+                        )
+                    ),
+                    description=input(Lit.TRANSACTION_DESCRIPTION),
+                )
             case "withdraw":
-                return self.run_transaction(_type="withdraw")
+                return self.run_transaction(
+                    _type="withdraw",
+                    amount=input(
+                        Lit.RUN_TRANSACTION_ENTER_AMOUNT.format(
+                            DEPOSIT_TYPE_MAPPING["withdraw"]
+                        )
+                    ),
+                    description=input(Lit.TRANSACTION_DESCRIPTION),
+                )
             case "history":
-                mode = input(Lit.HISTORY_MODE_CHOICES)
                 print(
                     self.print_history(
-                        history=self._get_history(self.user), mode=mode
+                        history=self._get_history(self.user),
+                        mode=input(Lit.HISTORY_MODE_CHOICES),
                     )
                 )
             case "search":
                 mode = input(Lit.SEARCH_MODE_CHOICES)
+                self._match_search_mode(mode)
                 value = input(Lit.SEARCH_VALUE_INPUT)
-                return print(
-                    self.search(mode, value, self._get_history(self.user))
-                )
+                print(self.search(mode, value, self._get_history(self.user)))
             case "edit":
                 transaction = input(Lit.ENTER_TRANSACTION_NUMBER)
                 return self.edit_transaction(
@@ -478,9 +580,17 @@ class Wallet:
         """
         match command:
             case "register":
-                return self.register(path=Uc.USERS_LOCATION)
+                return self.register(
+                    user=input(Lit.ENTER_LOGIN_REGISTER),
+                    password=mask_input(Lit.ENTER_PASSWORD),
+                    path=Uc.USERS_LOCATION,
+                )
             case "auth":
-                return self.auth()
+                return self.auth(
+                    user=input(Lit.ENTER_LOGIN_AUTH),
+                    password=mask_input(Lit.ENTER_PASSWORD),
+                    path=Uc.USERS_LOCATION,
+                )
             case "exit":
                 raise SystemExit
             case _:
@@ -491,13 +601,13 @@ class Wallet:
         Точка входа в приложение.
         """
         while True:
-            if not self.authenticated:
+            if self.first_time_logged:
                 print(Lit.FIRST_TIME_LOGGED_MESSAGE)
-            else:
-                if self.first_time_logged:
-                    print(Lit.WELCOME_MESSAGE.format(self.user))
-                    print(self.get_commands())
-                    self.first_time_logged = False
+                self.first_time_logged = False
+            if self.authenticated and self.required_to_show_commands:
+                print(Lit.WELCOME_MESSAGE.format(self.user))
+                print(self.get_commands())
+                self.required_to_show_commands = False
             command = input(Lit.ENTER_COMMAND)
             self.command_resolver(command)
 
