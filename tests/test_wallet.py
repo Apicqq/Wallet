@@ -1,90 +1,100 @@
-import datetime
-import getpass
-
-import pytest
-
-
 class TestWallet:
 
-    def test_registration(self, wallet, monkeypatch, temp_users_json):
-        monkeypatch.setattr("builtins.input", lambda _: "register")
-        monkeypatch.setattr("builtins.input", lambda _: "TestUserOne")
-        monkeypatch.setattr(getpass, "getpass", lambda _: "Test")
-        assert wallet.register(path=temp_users_json) == "TestUserOne"
-        monkeypatch.setattr("builtins.input", lambda _: "register")
-        monkeypatch.setattr("builtins.input", lambda _: "TestUserOne")
-        monkeypatch.setattr(getpass, "getpass", lambda _: "Test")
-        assert wallet.register(path=temp_users_json) == (
-            "Такой пользователь уже существует. "
-            "Пожалуйста, попробуйте ещё раз."
-        )
+    def test_registration(self, wallet, temp_users_json):
+        assert wallet.register(
+            "Test_User",
+            "Test_Password",
+            path=temp_users_json
+        ) == "Test_User"
 
-    @pytest.mark.parametrize(
-        "user, password",
-        [("Test", "Test")]
-    )
-    def test_auth(self,
-                  user, password, monkeypatch, wallet):
-        monkeypatch.setattr("builtins.input", lambda _: "auth")
-        monkeypatch.setattr("builtins.input", lambda _: user)
-        monkeypatch.setattr(getpass, "getpass", lambda _: password)
-        assert wallet.auth() == user
+    def test_user_already_exists(
+            self,
+            wallet,
+            registered_user,
+            temp_users_json
+    ):
+        assert wallet.register(
+            **registered_user,
+            path=temp_users_json
+        ) == ("Такой пользователь уже существует,"
+              " пожалуйста, попробуйте ещё раз.")
+
+    def test_valid_auth(
+            self,
+            registered_user,
+            wallet,
+            temp_users_json
+    ):
+        assert wallet.auth(
+            **registered_user,
+            path=temp_users_json
+        ) == "Test_user"
+
+    def test_auth_invalid_credentials(
+            self,
+            wallet,
+            temp_users_json,
+            registered_user
+    ):
+        assert wallet.auth(
+            "Test_123432",
+            "Test_2",
+            path=temp_users_json
+        ) == "Неверные имя пользователя или пароль"
 
     def test_unlogged_user_cannot_use_commands(self, wallet, monkeypatch):
         monkeypatch.setattr(wallet, "authenticated", False)
         monkeypatch.setattr("builtins.input", lambda _: "balance")
         assert wallet.get_balance("Test_User") == "Вы не вошли в систему"
 
-    def test_add_transaction(self, wallet, monkeypatch):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr("builtins.input", lambda _: "deposit")
-        monkeypatch.setattr("builtins.input", lambda _: "12345")
-        assert wallet.run_transaction("deposit") is True
+    def test_add_transaction(
+            self,
+            wallet,
+            temp_wallet_json,
+            authenticated_user
+    ):
+        assert wallet.run_transaction(
+            _type="deposit",
+            amount="12345",
+            description="test_text",
+            path=temp_wallet_json
+        ) is True
 
-    def test_user_cannot_deposit_non_integer(self, wallet, monkeypatch):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr("builtins.input", lambda _: "deposit")
-        monkeypatch.setattr("builtins.input", lambda _: "test_text")
-        assert wallet.run_transaction("deposit") is False
+    def test_user_cannot_deposit_non_integer(
+            self,
+            wallet,
+            authenticated_user,
+            temp_wallet_json
+    ):
+        assert wallet.run_transaction(
+            _type="deposit",
+            amount="test_text",
+            description="test_text",
+            path=temp_wallet_json
 
-    def test_write_transaction_to_file(self, wallet, wallet_deposit,
-                                       temp_wallet_json):
+        ) is False
+
+    def test_write_transaction_to_file(
+            self,
+            wallet,
+            wallet_deposit,
+            temp_wallet_json
+    ):
         with open(temp_wallet_json, "r") as file:
             lines = file.readlines()
             assert len(lines) > 0
-
-    def test_internal_get_history(
-            self,
-            wallet,
-            monkeypatch,
-            temp_wallet_json,
-            wallet_deposit
-    ):
-        data = {
-            "user": "Test",
-            "date": datetime.datetime.now().date().isoformat(),
-            "category": "deposit",
-            "amount": 12345.0,
-            "description": "test"
-        }
-        monkeypatch.setattr(wallet, "authenticated", True)
-        history = wallet._get_history(user="Test", path=temp_wallet_json)
-        assert len(list(history)) > 0
-        assert data in list(history)
 
     def test_get_full_history(
             self,
             wallet,
             wallet_deposit,
             wallet_withdraw,
-            monkeypatch,
-            temp_wallet_json
+            temp_wallet_json,
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr(wallet, "user", "Test")
         history = wallet.print_history(mode="all", history=wallet._get_history(
             path=temp_wallet_json,
-            user="Test"
+            user=authenticated_user
         ))
         assert "Доход" in history and "Расход" in history
 
@@ -93,15 +103,13 @@ class TestWallet:
             wallet,
             wallet_deposit,
             wallet_withdraw,
-            monkeypatch,
-            temp_wallet_json
+            temp_wallet_json,
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr(wallet, "user", "Test")
         history = wallet.print_history(mode="deposit",
                                        history=wallet._get_history(
                                            path=temp_wallet_json,
-                                           user="Test"
+                                           user=authenticated_user
                                        ))
         assert "Доход" in history and "Расход" not in history
 
@@ -111,16 +119,15 @@ class TestWallet:
             wallet_deposit,
             wallet_withdraw,
             monkeypatch,
-            temp_wallet_json
+            temp_wallet_json,
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr(wallet, "user", "Test")
         history = wallet.print_history(mode="withdraw",
                                        history=wallet._get_history(
                                            path=temp_wallet_json,
-                                           user="Test"
+                                           user=authenticated_user
                                        ))
-        assert "Доход" not in history and "Расход" not in history
+        assert "Расход" in history and "Доход" not in history
 
     def test_get_history_unknown_mode(
             self,
@@ -128,23 +135,19 @@ class TestWallet:
             wallet_deposit,
             wallet_withdraw,
             monkeypatch,
-            temp_wallet_json
+            temp_wallet_json,
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr(wallet, "user", "Test")
         history = wallet.print_history(
             mode="randommode",
             history=wallet._get_history(
                 path=temp_wallet_json,
-                user="Test"
+                user=authenticated_user
             )
         )
         assert history == "Неизвестный режим"
 
-    def test_empty_history(self, wallet, monkeypatch):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr("builtins.input", lambda _: "history")
-        monkeypatch.setattr("builtins.input", lambda _: "all")
+    def test_empty_history(self, wallet, authenticated_user):
         history = wallet.print_history(
             mode="all",
             history=[]
@@ -156,47 +159,53 @@ class TestWallet:
             wallet,
             wallet_deposit,
             temp_wallet_json,
-            monkeypatch
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr("builtins.input", lambda _: "balance")
         assert wallet.get_balance(
             history=wallet._get_history(
-                user="Test",
+                user=authenticated_user,
                 path=temp_wallet_json
             )
-        ) == "Ваш текущий баланс: 12345.0"
+        ) == (f"Ваш текущий баланс: {wallet_deposit[0]['amount']}\n\n"
+              f"Доходы: {wallet_deposit[0]['amount']}, Расходы: 0.0")
 
-    def test_get_balance_unknown_user(self, wallet, monkeypatch,
-                                      wallet_deposit,
-                                      temp_wallet_json):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr("builtins.input", lambda _: "balance")
+    def test_get_balance_unknown_user(
+            self,
+            wallet,
+            monkeypatch,
+            authenticated_user,
+            wallet_deposit,
+            temp_wallet_json
+    ):
         assert wallet.get_balance(
             history=wallet._get_history(
                 user="Unknown",
                 path=temp_wallet_json
             )
-        ) == "Ваш текущий баланс: 0.0"
+        ) == "Ваш текущий баланс: 0.0\n\nДоходы: 0.0, Расходы: 0.0"
 
-    def test_get_balance_no_history(self, wallet, monkeypatch):
-        monkeypatch.setattr(wallet, "authenticated", True)
-        monkeypatch.setattr("builtins.input", lambda _: "balance")
-        assert wallet.get_balance(history=[]) == "Ваш текущий баланс: 0.0"
+    def test_get_balance_no_history(
+            self,
+            wallet,
+            authenticated_user
+    ):
+        assert wallet.get_balance(history=[]) == (
+            "Ваш текущий баланс: 0.0\n\n"
+            "Доходы: 0.0, Расходы: 0.0"
+        )
 
     def test_invalid_search(
             self,
             wallet,
-            monkeypatch,
             temp_wallet_json,
-            wallet_deposit
+            wallet_deposit,
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
         assert wallet.search(
             mode="1",
             user_input="test",
             history=wallet._get_history(
-                user="Test",
+                user=authenticated_user,
                 path=temp_wallet_json
             )
         ) == "Ничего не найдено"
@@ -206,11 +215,10 @@ class TestWallet:
             wallet,
             temp_wallet_json,
             wallet_deposit,
-            monkeypatch
+            authenticated_user
     ):
-        monkeypatch.setattr(wallet, "authenticated", True)
         search_result = wallet.search(
-            mode="Сумма",
+            mode="amount",
             user_input="100",
             history=[
                 {"date": "2022-01-01", "category": "deposit", "amount": 100.0,
@@ -220,10 +228,9 @@ class TestWallet:
             ]
         )
         assert search_result is not None
-        assert "100.0" in search_result
-        assert "200.0" not in search_result
+        assert "100.0" in search_result and "200.0" not in search_result
         second_search_res = wallet.search(
-            mode="Категория",
+            mode="category",
             user_input="deposit",
             history=[
                 {"date": "2022-01-01", "category": "deposit", "amount": 100.0},
@@ -236,5 +243,87 @@ class TestWallet:
         assert ("Доход" in second_search_res and
                 "Расход" not in second_search_res)
 
-    def test_edit_transaction(self, wallet, temp_wallet_json):
-        pass
+    def test_edit_transaction_correct_values(
+            self,
+            wallet,
+            temp_wallet_json,
+            authenticated_user,
+            wallet_deposit,
+            monkeypatch
+    ):
+        valid_responses = iter(["2024-09-05", "deposit", "100", "description"])
+        monkeypatch.setattr("builtins.input", lambda _: next(valid_responses))
+        edited_transaction = wallet.edit_transaction(
+            user=authenticated_user,
+            path=temp_wallet_json,
+            transaction_id=wallet_deposit[0]["id"],
+        )
+        assert edited_transaction is True
+
+    def test_edit_transaction_incorrect_date(
+            self,
+            wallet,
+            temp_wallet_json,
+            authenticated_user,
+            wallet_deposit,
+            monkeypatch
+    ):
+        invalid_responses = iter(["0000-00-35", "deposit", "100", "description"])
+        monkeypatch.setattr("builtins.input", lambda _: next(invalid_responses))
+        edited_transaction = wallet.edit_transaction(
+            user=authenticated_user,
+            path=temp_wallet_json,
+            transaction_id=wallet_deposit[0]["id"],
+        )
+        assert edited_transaction is False
+
+    def test_edit_transaction_incorrect_amount(
+            self,
+            wallet,
+            temp_wallet_json,
+            authenticated_user,
+            wallet_deposit,
+            monkeypatch
+    ):
+        invalid_responses = iter(["2024-09-05", "deposit", "test", "description"])
+        monkeypatch.setattr("builtins.input", lambda _: next(invalid_responses))
+        edited_transaction = wallet.edit_transaction(
+            user=authenticated_user,
+            path=temp_wallet_json,
+            transaction_id=wallet_deposit[0]["id"],
+        )
+        assert edited_transaction is False
+
+    def test_edit_transaction_incorrect_description(
+            self,
+            wallet,
+            temp_wallet_json,
+            authenticated_user,
+            wallet_deposit,
+            monkeypatch
+    ):
+        invalid_responses = iter(["2024-09-05", "deposit", "100", "test" * 100])
+        monkeypatch.setattr("builtins.input", lambda _: next(invalid_responses))
+        edited_transaction = wallet.edit_transaction(
+            user=authenticated_user,
+            path=temp_wallet_json,
+            transaction_id=wallet_deposit[0]["id"],
+        )
+        assert edited_transaction is False
+
+    def test_edit_transaction_incorrect_category(
+            self,
+            wallet,
+            temp_wallet_json,
+            authenticated_user,
+            wallet_deposit,
+            monkeypatch
+    ):
+        invalid_responses = iter(["2024-09-05", "test", "100", "description"])
+        monkeypatch.setattr("builtins.input", lambda _: next(invalid_responses))
+        edited_transaction = wallet.edit_transaction(
+            user=authenticated_user,
+            path=temp_wallet_json,
+            transaction_id=wallet_deposit[0]["id"],
+        )
+        assert edited_transaction is False
